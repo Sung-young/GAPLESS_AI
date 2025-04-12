@@ -5,6 +5,8 @@ from rag_system import RAGSystem
 from additional_query_system import AdditionalQuerySystem
 from typing import List, Optional
 import json
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 app = FastAPI(
     title="IT Terminology RAG API",
@@ -24,6 +26,7 @@ app.add_middleware(
 # RAG 시스템 초기화
 rag_system = None
 additional_query_system = None
+executor = ThreadPoolExecutor(max_workers=4)  # 동시 처리 가능한 작업 수 설정
 
 class Question(BaseModel):
     question: str
@@ -51,11 +54,18 @@ async def startup_event():
         rag_system = RAGSystem()
         additional_query_system = AdditionalQuerySystem()
         
-        # 벡터 저장소 로드
-        rag_system.load_vectorstore("dev_terms_vectorstore")
+        # 벡터 저장소 로드 (비동기로 처리)
+        await asyncio.get_event_loop().run_in_executor(
+            executor,
+            rag_system.load_vectorstore,
+            "dev_terms_vectorstore"
+        )
     except Exception as e:
         print(f"Failed to initialize systems: {str(e)}")
         raise
+
+async def run_in_threadpool(func, *args):
+    return await asyncio.get_event_loop().run_in_executor(executor, func, *args)
 
 @app.post("/ask", 
          response_model=Answer,
@@ -66,8 +76,12 @@ async def ask_question(question: Question):
         if not rag_system:
             raise HTTPException(status_code=500, detail="RAG system is not initialized")
         
-        # 질문에 대한 답변 생성 (category 포함)
-        answer, sources = rag_system.query(question.question, question.category)
+        # 비동기로 질문 처리
+        answer, sources = await run_in_threadpool(
+            rag_system.query,
+            question.question,
+            question.category
+        )
         
         # JSON 문자열을 파싱
         try:
@@ -94,8 +108,9 @@ async def ask_additional_question(question: AdditionalQuestion):
         if not additional_query_system:
             raise HTTPException(status_code=500, detail="Additional query system is not initialized")
         
-        # 추가 질문 처리
-        additional_answer = additional_query_system.process_additional_query(
+        # 비동기로 추가 질문 처리
+        additional_answer = await run_in_threadpool(
+            additional_query_system.process_additional_query,
             question.previous_answer,
             question.additional_request,
             question.category
@@ -107,6 +122,11 @@ async def ask_additional_question(question: AdditionalQuestion):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    # 스레드 풀 종료
+    executor.shutdown(wait=True)
 
 if __name__ == "__main__":
     import uvicorn
