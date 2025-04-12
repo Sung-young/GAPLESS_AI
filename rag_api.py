@@ -5,7 +5,7 @@ from rag_system import RAGSystem
 from additional_query_system import AdditionalQuerySystem
 from typing import List, Optional
 import json
-import asyncio
+import asynci
 from concurrent.futures import ThreadPoolExecutor
 
 app = FastAPI(

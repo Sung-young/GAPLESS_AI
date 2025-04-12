@@ -6,6 +6,9 @@ from langchain_community.vectorstores import FAISS
 from langchain_openai import ChatOpenAI
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
+import pickle
+import json
+import warnings
 
 class RAGSystem:
     def __init__(self, api_key=None, embedding_k=4, retrieval_k=4):
@@ -113,8 +116,18 @@ class RAGSystem:
             self.vectorstore.save_local(path)
 
     def load_vectorstore(self, path):
-        # 파일에서 벡터 저장소 로드
-        self.vectorstore = FAISS.load_local(path, self.embeddings)
+        """Load FAISS vector store from disk with Python 3.13+ compatibility"""
+        try:           
+            # FAISS 벡터 저장소 로드
+            self.vectorstore = FAISS.load_local(
+                path,
+                self.embeddings,
+                allow_dangerous_deserialization=True  # Python 3.13+에서 필요한 설정
+            )
+            print(f"Vector store loaded successfully from {path}")
+        except Exception as e:
+            print(f"Error loading vector store: {str(e)}")
+            raise
 
     def get_qa_chain(self):
         # QA 체인 생성
